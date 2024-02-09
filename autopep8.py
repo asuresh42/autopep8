@@ -3511,6 +3511,26 @@ def fix_code(source, options=None, encoding=None, apply_config=False):
     sio = io.StringIO(source)
     return fix_lines(sio.readlines(), options=options)
 
+def custom_fix_code(source, options=None, encoding=None, apply_config=False):
+    """Return fixed source code.
+
+    "encoding" will be used to decode "source" if it is a byte string.
+
+    """
+    options = _get_options(options, apply_config)
+    # normalize
+    options.ignore = [opt.upper() for opt in options.ignore]
+    options.select = [opt.upper() for opt in options.select]
+
+    print(f"options.select = {options.select}")
+
+    if not isinstance(source, str):
+        source = source.decode(encoding or get_encoding())
+
+    sio = io.StringIO(source)
+    return fix_lines(sio.readlines(), options=options)
+
+
 
 def _get_options(raw_options, apply_config):
     """Return parsed options."""
@@ -3624,6 +3644,17 @@ def fix_file(filename, options=None, output=None, apply_config=False):
             output.flush()
     return fixed_source
 
+def custom_fix_file_actual(code, options=None, output=None, apply_config=False):
+    
+    #print(f"code = {code}")
+    #print(f"type of code = {type(code)}")
+    original_source = code.splitlines()
+
+    fixed_source = original_source
+
+    fixed_source = fix_lines(fixed_source, options=options)
+
+    return fixed_source
 
 def global_fixes():
     """Yield multiple (code, function) tuples."""
@@ -4402,7 +4433,19 @@ def _fix_file(parameters):
     except IOError as error:
         print(str(error), file=sys.stderr)
         raise error
+    
+def custom_fix_file(code, parameters):
+    return custom_fix_file_actual(code, parameters)
 
+def custom_fix_multiple_files(code, options, output=None):
+    """Fix list of files.
+
+    Optionally fix files recursively.
+
+    """
+    ret = custom_fix_file_actual(code=code, options= options, output=output)
+    
+    return ret
 
 def fix_multiple_files(filenames, options, output=None):
     """Fix list of files.
@@ -4490,6 +4533,50 @@ def get_encoding():
     """Return preferred encoding."""
     return locale.getpreferredencoding() or sys.getdefaultencoding()
 
+def custom_code_fixer(code, args, apply_config= True): #['-', '--in_place', '--aggressive', '--aggressive', '--verbose']
+    try:
+        print(f"args = {args}")
+        print(f"config = {apply_config}")
+        args = parse_args(args, apply_config=apply_config)
+
+        if args.list_fixes:
+            for code, description in sorted(supported_fixes()):
+                print('{code} - {description}'.format(
+                    code=code, description=description))
+            return EXIT_CODE_OK
+
+        '''print(f"final args = {args}")
+            print(f"encoding = {encoding}")
+            print(f"code = {read_stdin}")
+            #return EXIT_CODE_ERROR'''
+        fixed_code = custom_fix_code(code, args)
+
+        if hash(code) != hash(fixed_code):
+            if args.exit_code:
+                return "Failed"#EXIT_CODE_EXISTS_DIFF
+        
+        return code
+
+    except IOError:
+        return "Failed"#EXIT_CODE_ERROR
+    except KeyboardInterrupt:
+        return "Failed"#EXIT_CODE_ERROR  # pragma: no cover
+
+def custom_code_fixer_linewise(code, args, apply_config= True): #['-', '--in_place', '--aggressive', '--aggressive', '--verbose']
+    try:
+        #print(f"args = {args}")
+        #print(f"config = {apply_config}")
+        args = parse_args(args, apply_config=apply_config)
+
+        results = custom_fix_multiple_files(code=code, options=args)
+
+        return results
+            
+    except IOError:
+        return "Failed"#EXIT_CODE_ERROR
+    except KeyboardInterrupt:
+        return "Failed"#EXIT_CODE_ERROR  # pragma: no cover
+
 
 def main(argv=None, apply_config=True):
     """Command-line entry."""
@@ -4504,6 +4591,8 @@ def main(argv=None, apply_config=True):
         pass
 
     try:
+        print(f"args = {argv[1:]}")
+        print(f"config = {apply_config}")
         args = parse_args(argv[1:], apply_config=apply_config)
 
         if args.list_fixes:
@@ -4512,11 +4601,16 @@ def main(argv=None, apply_config=True):
                     code=code, description=description))
             return EXIT_CODE_OK
 
+        #args.files = ['-'] #undo this
         if args.files == ['-']:
             assert not args.in_place
 
             encoding = sys.stdin.encoding or get_encoding()
-            read_stdin = sys.stdin.read()
+            read_stdin = "print(\"hello\")" #sys.stdin.read()
+            print(f"final args = {args}")
+            print(f"encoding = {encoding}")
+            print(f"code = {read_stdin}")
+            #return EXIT_CODE_ERROR
             fixed_stdin = fix_code(read_stdin, args, encoding=encoding)
 
             # LineEndingWrapper is unnecessary here due to the symmetry between
